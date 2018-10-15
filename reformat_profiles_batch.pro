@@ -1,0 +1,62 @@
+;; Batch routine to process daily radiosonde profiles to monthly averages
+;; using the REFORMAT_PROFILES routine
+
+start_time = SYSTIME(/JULIAN)
+
+;; Get list of daily files
+fili = FINDFILE( '?????.txt*', COUNT=nfile )
+
+filo = STRMID( fili, 0, 5 ) + '.month.nc'
+
+;;nfile = 1
+FOR ifile = 0, ( nfile - 1 ) DO BEGIN
+
+   ;; Unzip files if zipped
+   iszip = STREGEX( fili[ifile], '.gz$', /BOOLEAN)
+   IF ( iszip EQ 1 ) THEN BEGIN
+      PRINT, '% Unzipping ' + fili[ifile]
+      SPAWN, 'gunzip ' + fili[ifile]
+      newfile = STRMID( fili[ifile], 0, 9 )
+   ENDIF ELSE BEGIN
+      newfile = fili[ifile]
+   ENDELSE
+
+   ;; Read radiosonde profiles for station
+   PRINT, '% Reading profiles from ' + newfile
+   data = 0
+   READ_DAI_RADIOSONDE, newfile, data
+
+
+   ;; Subset structure so that only fiest 7 levels are in file
+   ;; - this reduces the amount of crunching
+   PRINT, '% Subsetting data...'
+   sub_data = 0
+   SUBSET_STRUCT, data, sub_data, 0, 6
+
+   ;; Reformat data so that levels are in columns
+   PRINT, '% Reformatting data...'
+   ref_data = 0
+   ref_data = REFORMAT_PROFILES( sub_data )
+
+   ;; Calculate monthly means
+   PRINT, '% Calculating monthly means...'
+   mon_data = 0
+   DAI_PROFILES_TO_MONTH, ref_data, mon_data
+ 
+   ;; Write data to files
+   PRINT, '% Writing data to ' + filo[ifile]
+   MONTH_PROFILES_TO_NETCDF, mon_data, data[0].station_number, filo[ifile]
+
+   ;; Zip file even if they weren't zipped in the first place
+   PRINT, '% Zipping ' + newfile
+   SPAWN, 'gzip ' + newfile
+
+   secinday = 86400.
+   time_elapsed = (SYSTIME(/JULIAN) - start_time) * secinday
+   PRINT, 'Time Elapsed: ' + STRTRIM( time_elapsed, 2 ) + ' seconds'
+
+ENDFOR
+
+END
+
+
